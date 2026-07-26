@@ -1,0 +1,90 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'containers/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'containers/**'
+
+# 授予工作流写入 packages (GHCR) 的权限
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # 阶段 1：扫描变更的容器目录并生成动态构建矩阵
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect Changed Containers
+        id: set-matrix
+        run: |
+          # 获取变更过的 containers/ 下的子目录列表
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED_DIRS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
+          else
+            CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c . || echo "[]")
+          fi
+
+          # 如果没有检测出变化（如首次初始化推流），默认扫描所有包含 Dockerfile 的子目录
+          if [ "$CHANGED_DIRS" = "[]" ] || [ -z "$CHANGED_DIRS" ]; then
+            CHANGED_DIRS=$(find containers -maxdepth 2 -name Dockerfile | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
+          fi
+
+          echo "Detected changes in: $CHANGED_DIRS"
+          echo "matrix=$CHANGED_DIRS" >> $GITHUB_OUTPUT
+
+  # 阶段 2：并行构建并推送变动的镜像
+  build-and-push:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        container: ${{ json(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.container }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./containers/${{ matrix.container }}
+          file: ./containers/${{ matrix.container }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.container }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.container }}
