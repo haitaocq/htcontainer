@@ -5,7 +5,7 @@
 # ==========================================
 FROM debian:bookworm-slim AS builder
 
-ARG NODE_VERSION=20.18.0
+ARG NODE_VERSION=24.18.0
 
 # 1. 安装基础工具（使用 BuildKit 缓存挂载）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
