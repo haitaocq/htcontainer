@@ -10,7 +10,6 @@ on:
     paths:
       - 'containers/**'
 
-# 授予工作流写入 packages (GHCR) 的权限
 permissions:
   contents: read
   packages: write
@@ -30,14 +29,12 @@ jobs:
       - name: Detect Changed Containers
         id: set-matrix
         run: |
-          # 获取变更过的 containers/ 下的子目录列表
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED_DIRS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
           else
             CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c . || echo "[]")
           fi
 
-          # 如果没有检测出变化（如首次初始化推流），默认扫描所有包含 Dockerfile 的子目录
           if [ "$CHANGED_DIRS" = "[]" ] || [ -z "$CHANGED_DIRS" ]; then
             CHANGED_DIRS=$(find containers -maxdepth 2 -name Dockerfile | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
           fi
@@ -52,7 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        container: ${{ json(needs.detect-changes.outputs.matrix) }}
+        # 此处已修正：使用 fromJSON 解析字符串数组
+        container: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
       fail-fast: false
 
     steps:
