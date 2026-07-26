@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ==========================================
-# 阶段 1: 依赖下载与工具安装阶段 (Builder)
+# 阶段 1: 依赖下载与工具安装阶段 (Builder)1
 # ==========================================
 FROM debian:bookworm-slim AS builder
 
