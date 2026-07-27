@@ -16,11 +16,11 @@ mkdir -p "$OPENCODE_CONFIG_DIR"
 # 获取环境变量参数（提供合理缺省值）
 PROVIDER_ID="${OPENCODE_PROVIDER:-custom-provider}"
 MODELS_IDS="${OPENCODE_MODEL:-default-model}"
-API_KEY="${OPENCODE_API_KEY:-$OPENAI_API_KEY}"
+API_KEY="${OPENCODE_API_TOKEN:-$OPENAI_API_KEY}"
 BASE_URL="${OPENCODE_BASE_URL:-$OPENAI_BASE_URL}"
 
 # 仅当设置了 LLM 相关的环境变量时动态生成/更新配置
-if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_API_KEY" ]; then
+if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_API_TOKEN" ]; then
     echo "[OpenCode] Injecting third-party LLM config (Provider: $PROVIDER_ID, Models: $MODELS_IDS)..."
 
     # 使用 jq 构建符合 OpenCode 官方 Schema 的 JSON 配置文件
