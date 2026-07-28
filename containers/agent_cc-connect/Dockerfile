@@ -21,7 +21,7 @@ RUN mkdir -p /build/out_bin && \
     curl -fsSL https://opencode.ai/install | bash && \
     curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash && \
     curl -fsSL -o cc-connect.tar.gz https://github.com/chenhg5/cc-connect/releases/download/v${CC_VERSION}/cc-connect-v${CC_VERSION}-linux-amd64.tar.gz && \
-    tar -xzf cc-connect.tar.gz && mv cc-connect-v${CC_VERSION}-linux-amd64 /build/out_bin/  && \
+    tar -xzf cc-connect.tar.gz && mv cc-connect-v${CC_VERSION}-linux-amd64 /build/out_bin/cc-connect  && \
     find /root /usr/local /tmp -maxdepth 4 -type f \( -name "opencode" -o -name "multica" \) -exec cp {} /build/out_bin/ \; && \
     chmod +x /build/out_bin/*
 
