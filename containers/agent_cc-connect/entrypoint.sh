@@ -111,7 +111,7 @@ multica daemon start || echo "[Warning] Daemon failed to start, continuing..."
 
 # 定义配置文件路径
 CC_CONFIG_DIR="/home/agents/.cc-connect"
-CC_CONFIG="$CONFIG_DIR/config.toml"
+CC_CONFIG="$CC_CONFIG_DIR/config.toml"
 CC_TEMPLATE_CONFIG="/etc/cc-connect/config.template.toml"
 
 # 即使宿主机挂载了全新的空目录到 /home/agents，也能自动完成初始化
