@@ -6,7 +6,7 @@
 # ==========================================
 FROM debian:bookworm-slim AS builder
 
-ARG CC_VERSION=1.4.1
+ARG CC_VERSION=1.4.0
 # 自动获取当前构建目标架构 (amd64 / arm64)
 ARG TARGETARCH
 
