@@ -1,0 +1,58 @@
+# =============================================================================
+# 全局基础配置
+# =============================================================================
+language = "zh"           # 机器人输出语言设置为中文
+shell = "/bin/bash"        # 根据本地系统习惯选择 sh / bash / zsh
+shell_profile = "source ~/.bashrc" # 加载个人环境变量，保证 node/python/opencode 路径正常
+
+[log]
+level = "info"            # 日志级别：debug, info, warn, error
+
+# =============================================================================
+# 全局显示设置（针对 IM 界面的消息优化）
+# =============================================================================
+[display]
+mode = "full"             # 默认显示模式
+thinking_messages = true  # 显示思考过程
+thinking_max_len = 300    # 思考消息最大长度（超出截断）
+tool_max_len = 500        # 工具执行结果最大字符数
+show_context_indicator = true # 在回答末尾显示 [ctx: ~N%] 上下文 Token 占用率
+
+# =============================================================================
+# 项目绑定配置：OpenCode + 飞书
+# =============================================================================
+[[projects]]
+name = "cc-connect_feishu"
+admin_from = "*"
+quiet = true
+
+# 1. 配置 OpenCode Agent
+[projects.agent]
+type = "opencode"          # Agent 类型指定为 opencode
+
+[projects.agent.options]
+work_dir = "{CC_WORK_DIR}"  # 替换为你的本地代码库真实绝对路径
+mode = "{CC_MODE}"           # OpenCode 运行模式
+
+# 2. 会话生命周期与安全控制
+reset_on_idle_mins = 30   # 用户闲置 30 分钟后再发消息，自动开辟新会话，防止脏上下文漂移
+idle_timeout_mins = 60    # Agent 连续 60 分钟无事件产生时自动释放资源
+max_turn_time_mins = 30   # 单次对话绝对上限时间 30 分钟，防止后台死循环 Bash 命令卡死进程
+
+# 3. 配置 飞书 接入平台
+[[projects.platforms]]
+type = "feishu"
+
+[projects.platforms.options]
+# 凭证推荐使用环境变量引用，避免硬编码泄漏
+app_id = "${FEISHU_APP_ID}"
+app_secret = "${FEISHU_APP_SECRET}"
+
+# --- 飞书 UI 与体验优化配置 (关键项) ---
+enable_feishu_card = true  # 启用交互式卡片（包含模型切换、状态展示等）
+progress_style = "compact" # 将思考过程与工具调用日志在同一张卡片上增量更新，避免剧烈刷屏！可选：legacy | compact | card
+thread_isolation = true    # 启用话题隔离：飞书群里每次对主消息回复（开启 Thread）独立为一个 Agent Session
+done_emoji = "Done"        # 任务完成后自动在用户原消息打钩（✅），清晰提示已结束
+image_batch_window_ms = 800 # 手机连续发多张图片给 AI 时，800ms 内合批为一条消息处理
+resolve_mentions = true    # 开启原生 @ 解析，AI 回复中的 @姓名 会自动转为飞书原生的 @提醒
+# mention_map = { BOT-B = "ou_bot_b_open_id", BOT-A = "ou_bot_a_open_id" }  # mention_map 负责显式 open_id 映射（覆盖不在群成员列表里的机器人）
