@@ -6,6 +6,8 @@
 # ==========================================
 FROM debian:bookworm-slim AS builder
 
+ARG CC_VERSION=1.4.1
+
 # 挂载 APT 缓存，避免重复拉取 deb 包
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -18,7 +20,7 @@ WORKDIR /build
 RUN mkdir -p /build/out_bin && \
     curl -fsSL https://opencode.ai/install | bash && \
     curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash && \
-    curl -fsSL -o /build/out_bin/cc-connect https://github.com/chenhg5/cc-connect/releases/latest/download/cc-connect-linux-amd64 && \
+    curl -fsSL -o /build/out_bin/cc-connect https://github.com/chenhg5/cc-connect/releases/download/v${CC_VERSION}/cc-connect-v${CC_VERSION}-linux-amd64.tar.gz && \
     find /root /usr/local /tmp -maxdepth 4 -type f \( -name "opencode" -o -name "multica" \) -exec cp {} /build/out_bin/ \; && \
     chmod +x /build/out_bin/*
 
