@@ -7,6 +7,8 @@
 FROM debian:bookworm-slim AS builder
 
 ARG CC_VERSION=1.4.1
+# 自动获取当前构建目标架构 (amd64 / arm64)
+ARG TARGETARCH
 
 # 挂载 APT 缓存，避免重复拉取 deb 包
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -20,7 +22,14 @@ WORKDIR /build
 RUN mkdir -p /build/out_bin && \
     curl -fsSL https://opencode.ai/install | bash && \
     curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash && \
-    curl -fsSL -o /build/out_bin/cc-connect https://github.com/chenhg5/cc-connect/releases/download/v${CC_VERSION}/cc-connect-v${CC_VERSION}-linux-amd64.tar.gz && \
+    ARCH="${TARGETARCH:-amd64}" && \
+    echo "[Builder] 当前构建架构: ${ARCH}" && \
+    curl -fsSL -o /build/out_bin/cc-connect https://github.com/chenhg5/cc-connect/releases/download/v${CC_VERSION}/cc-connect-v${CC_VERSION}-linux-${ARCH}.tar.gz && \
+    # 校验文件是否为合法的 Linux ELF 可执行文件
+    if ! head -c 4 /build/out_bin/cc-connect | grep -q $'^\x7fELF'; then \
+        echo "[Error] 下载的 cc-connect 不是有效的二进制文件，请检查下载链接或架构！"; \
+        cat /build/out_bin/cc-connect; exit 1; \
+    fi && \
     find /root /usr/local /tmp -maxdepth 4 -type f \( -name "opencode" -o -name "multica" \) -exec cp {} /build/out_bin/ \; && \
     chmod +x /build/out_bin/*
 
