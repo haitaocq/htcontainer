@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ca-certificates \
     curl \
     git \
-    tar \
+    tar
 
 
 # 前台常驻阻塞
