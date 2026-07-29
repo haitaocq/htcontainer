@@ -18,6 +18,7 @@ PROVIDER_ID="${OPENCODE_PROVIDER:-custom-provider}"
 MODELS_IDS="${OPENCODE_MODEL:-default-model}"
 API_KEY="${OPENCODE_API_TOKEN:-$OPENAI_API_KEY}"
 BASE_URL="${OPENCODE_BASE_URL:-$OPENAI_BASE_URL}"
+MODEL_DEFAULT="${OPENCODE_MODEL_DEFAULT:-}"
 
 # 仅当设置了 LLM 相关的环境变量时动态生成/更新配置
 if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_API_TOKEN" ]; then
@@ -30,16 +31,16 @@ if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_AP
       --arg models_ids "$MODELS_IDS" \
       --arg api_key "${API_KEY:-}" \
       --arg base_url "${BASE_URL:-}" \
+      --arg model_default "${MODEL_DEFAULT:-}" \
       '
       # 1. 拆分逗号分隔的模型列表，并清空首尾多余空格
       ($models_ids | split(",") | map(gsub("^\\s+|\\s+$"; ""))) as $model_list
       # 2. 将列表中的首个模型设置为主默认模型
-      | $model_list[0] as $default_model
+      # | $model_list[0] as $model_default
       # 3. 构造模型映射字典 { "model_a": { "name": "model_a" }, ... }
       | ($model_list | map({ key: ., value: { name: . } }) | from_entries) as $models_map
       | {
         "$schema": $schema,
-        "model": "\($provider_id)/\($default_model)",
         "provider": {
           ($provider_id): {
             "npm": "@ai-sdk/openai-compatible",
@@ -51,7 +52,9 @@ if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_AP
             "models": $models_map
           }
         }
-      }' > "$OPENCODE_CONFIG_FILE"
+      # 4. 判断 model_default 是否为空，不为空则拼接 model 字段，为空则拼接空对象（即不生成该字段）
+      + (if $model_default != "" then { "model": "\($provider_id)/\($model_default)" } else {} end)
+      ' > "$OPENCODE_CONFIG_FILE"
 fi
 
 # --------------------------------------------------
@@ -99,10 +102,37 @@ else
 fi
 
 # --------------------------------------------------
-# 3. 启动守护进程
+# 3. 启动Multica守护进程
 # --------------------------------------------------
+# 新增：后台重试启动函数
+retry_start_daemon() {
+    local max_retries=30      # 最大重试次数
+    local retry_interval=5    # 重试间隔(秒)
+    local count=0
+ 
+    while [ $count -lt $max_retries ]; do
+        count=$((count + 1))
+        echo "[Multica Daemon Retry] Attempt $count/$max_retries. Waiting ${retry_interval}s for server to be ready..."
+        sleep $retry_interval
+        
+        if multica daemon start; then
+            echo "[Multica Daemon Retry] Daemon started successfully on attempt $count."
+            return 0
+        fi 
+    done
+ 
+    echo "[Error] Multica daemon failed to start after $max_retries retries." >&2
+    return 1
+}
+ 
 echo "[Multica] Starting background daemon..."
-multica daemon start || echo "[Warning] Daemon failed to start, continuing..."
+if multica daemon start; then
+    echo "[Multica] Daemon started successfully."
+else
+    echo "[Warning] Daemon failed to start initially. Spawning background retry process..."
+    # 将重试逻辑放入后台执行，不阻塞主进程
+    retry_start_daemon &
+fi 
 
 # --------------------------------------------------
 # 4. 信号捕获与优雅退出处理 (Graceful Shutdown)

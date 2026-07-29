@@ -18,6 +18,7 @@ PROVIDER_ID="${OPENCODE_PROVIDER:-custom-provider}"
 MODELS_IDS="${OPENCODE_MODEL:-default-model}"
 API_KEY="${OPENCODE_API_TOKEN:-$OPENAI_API_KEY}"
 BASE_URL="${OPENCODE_BASE_URL:-$OPENAI_BASE_URL}"
+MODEL_DEFAULT="${OPENCODE_MODEL_DEFAULT:-}"
 
 # 仅当设置了 LLM 相关的环境变量时动态生成/更新配置
 if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_API_TOKEN" ]; then
@@ -30,16 +31,16 @@ if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_AP
       --arg models_ids "$MODELS_IDS" \
       --arg api_key "${API_KEY:-}" \
       --arg base_url "${BASE_URL:-}" \
+      --arg model_default "${MODEL_DEFAULT:-}" \
       '
       # 1. 拆分逗号分隔的模型列表，并清空首尾多余空格
       ($models_ids | split(",") | map(gsub("^\\s+|\\s+$"; ""))) as $model_list
       # 2. 将列表中的首个模型设置为主默认模型
-      | $model_list[0] as $default_model
+      # | $model_list[0] as $model_default
       # 3. 构造模型映射字典 { "model_a": { "name": "model_a" }, ... }
       | ($model_list | map({ key: ., value: { name: . } }) | from_entries) as $models_map
       | {
         "$schema": $schema,
-        "model": "\($provider_id)/\($default_model)",
         "provider": {
           ($provider_id): {
             "npm": "@ai-sdk/openai-compatible",
@@ -51,7 +52,9 @@ if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_AP
             "models": $models_map
           }
         }
-      }' > "$OPENCODE_CONFIG_FILE"
+      # 4. 判断 model_default 是否为空，不为空则拼接 model 字段，为空则拼接空对象（即不生成该字段）
+      + (if $model_default != "" then { "model": "\($provider_id)/\($model_default)" } else {} end)
+      ' > "$OPENCODE_CONFIG_FILE"
 fi
 
 # --------------------------------------------------
