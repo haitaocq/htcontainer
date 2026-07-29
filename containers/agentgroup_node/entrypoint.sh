@@ -52,6 +52,7 @@ if [ -n "$OPENCODE_MODEL" ] || [ -n "$OPENCODE_BASE_URL" ] || [ -n "$OPENCODE_AP
             "models": $models_map
           }
         }
+      }    
       # 4. 判断 model_default 是否为空，不为空则拼接 model 字段，为空则拼接空对象（即不生成该字段）
       + (if $model_default != "" then { "model": "\($provider_id)/\($model_default)" } else {} end)
       ' > "$OPENCODE_CONFIG_FILE"
