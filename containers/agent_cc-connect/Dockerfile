@@ -52,4 +52,4 @@ USER agents
 WORKDIR /home/agents
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD [cc-connect"]
+CMD ["cc-connect"]
