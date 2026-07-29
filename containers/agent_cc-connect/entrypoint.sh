@@ -123,8 +123,8 @@ if [ ! -f "$CC_CONFIG" ]; then
 fi
 
 # 获取环境变量CC_WORK_DIR，检测cc-connect的工作目录work_dir是否存在，不存在则创建
-if [ ! -f "$CC_WORK_DIR" ]; then
-    echo "[cc-connect] 未检测到工作目录 $CC_WORK_DIR ，正在从系统模板初始化配置..."
+if [ ! -d "$CC_WORK_DIR" ]; then
+    echo "[cc-connect] 未检测到工作目录 $CC_WORK_DIR ，正在创建..."
     mkdir -p "$CC_WORK_DIR"
     echo "[cc-connect] 工作目录创建成功: $CC_WORK_DIR"
 fi
