@@ -101,8 +101,35 @@ fi
 # --------------------------------------------------
 # 3. 启动Multica守护进程
 # --------------------------------------------------
+# 新增：后台重试启动函数
+retry_start_daemon() {
+    local max_retries=30      # 最大重试次数
+    local retry_interval=5    # 重试间隔(秒)
+    local count=0
+ 
+    while [ $count -lt $max_retries ]; do
+        count=$((count + 1))
+        echo "[Multica Daemon Retry] Attempt $count/$max_retries. Waiting ${retry_interval}s for server to be ready..."
+        sleep $retry_interval
+        
+        if multica daemon start; then
+            echo "[Multica Daemon Retry] Daemon started successfully on attempt $count."
+            return 0
+        fi 
+    done
+ 
+    echo "[Error] Multica daemon failed to start after $max_retries retries." >&2
+    return 1
+}
+ 
 echo "[Multica] Starting background daemon..."
-multica daemon start || echo "[Warning] Daemon failed to start, continuing..."
+if multica daemon start; then
+    echo "[Multica] Daemon started successfully."
+else
+    echo "[Warning] Daemon failed to start initially. Spawning background retry process..."
+    # 将重试逻辑放入后台执行，不阻塞主进程
+    retry_start_daemon &
+fi 
 
 
 # --------------------------------------------------
