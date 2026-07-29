@@ -16,7 +16,5 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     tar \
 
 
-WORKDIR /root
-
 # 前台常驻阻塞
 CMD ["tail", "-f", "/dev/null"]
