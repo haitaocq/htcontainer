@@ -106,7 +106,7 @@ multica daemon start || echo "[Warning] Daemon failed to start, continuing..."
 
 
 # --------------------------------------------------
-# 4. 配置+启动cc-connect守护进程
+# 4. 配置cc-connect
 # --------------------------------------------------
 
 # 定义配置文件路径
@@ -121,16 +121,6 @@ if [ ! -f "$CC_CONFIG" ]; then
     cp "$CC_TEMPLATE_CONFIG" "$CC_CONFIG"
     echo "[cc-connect] 主配置文件生成成功: $CC_CONFIG"
 fi
-
-echo "[cc-connect] 正在启动 cc-connect 守护进程..."
-if command -v cc-connect >/dev/null 2>&1; then
-    cc-connect daemon start || echo "[Warning] cc-connect 启动失败，请检查配置或日志！"
-else
-    echo "[Error] 未找到 cc-connect 可执行文件！"
-    exit 1
-fi
-
-echo "[cc-connect] 启动成功！"
 
 
 # --------------------------------------------------

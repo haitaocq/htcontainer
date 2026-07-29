@@ -16,14 +16,14 @@ mode = "full"             # 默认显示模式
 thinking_messages = true  # 显示思考过程
 thinking_max_len = 300    # 思考消息最大长度（超出截断）
 tool_max_len = 500        # 工具执行结果最大字符数
-show_context_indicator = true # 在回答末尾显示 [ctx: ~N%] 上下文 Token 占用率
+# show_context_indicator = true # 在回答末尾显示 [ctx: ~N%] 上下文 Token 占用率
 
 # =============================================================================
 # 项目绑定配置：OpenCode + 飞书
 # =============================================================================
 [[projects]]
 name = "cc-connect_feishu"
-admin_from = "*"
+admin_from = "${CC_ADMIN_FROM}"
 quiet = true
 
 # 1. 配置 OpenCode Agent
@@ -31,8 +31,8 @@ quiet = true
 type = "opencode"          # Agent 类型指定为 opencode
 
 [projects.agent.options]
-work_dir = "{CC_WORK_DIR}"  # 替换为你的本地代码库真实绝对路径
-mode = "{CC_MODE}"           # OpenCode 运行模式
+work_dir = "${CC_WORK_DIR}"  # 替换为你的本地代码库真实绝对路径
+mode = "${CC_MODE}"           # OpenCode 运行模式
 
 # 2. 会话生命周期与安全控制
 reset_on_idle_mins = 30   # 用户闲置 30 分钟后再发消息，自动开辟新会话，防止脏上下文漂移
