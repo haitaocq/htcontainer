@@ -1,14 +1,19 @@
 name: Build and Push Docker Images
 
 on:
+  # 1. main 分支代码变更（仅当 containers/** 路径有改动）
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
     paths:
       - 'containers/**'
+  # 2. Pull Request（仅验证可构建性，不推送）
   pull_request:
     branches: [ "main" ]
     paths:
       - 'containers/**'
+  # 3. 手动触发：固定构建全部镜像
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,8 +35,16 @@ jobs:
         id: set-matrix
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR：对比目标分支与当前提交，找出变更的容器目录
             CHANGED_DIRS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发：固定构建全部镜像
+            CHANGED_DIRS=$(find containers -maxdepth 2 -name Dockerfile | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
+          elif [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            # 标签触发（v* 命名）：构建全部镜像
+            CHANGED_DIRS=$(find containers -maxdepth 2 -name Dockerfile | cut -d/ -f2 | sort -u | jq -R . | jq -s -c .)
           else
+            # main 分支 push：对比上次提交，找出变更的容器目录
             CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '^containers/' | cut -d/ -f2 | sort -u | jq -R . | jq -s -c . || echo "[]")
           fi
 
@@ -73,7 +86,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.container }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern=v{{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=,format=short
 
       - name: Build and Push Docker Image
