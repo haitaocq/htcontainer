@@ -28,6 +28,7 @@
 | `agentgroup_node` | `debian:bookworm-slim`（自装 Node.js 24） | opencode + multica + Node.js | 需要 Node.js 运行时的 Agent 环境 |
 | `agentgroup_python` | `python:3.11-slim-bookworm` | opencode + multica + Python 3.11 | 需要 Python 运行时的 Agent 环境 |
 | `agent_cc-connect` | `debian:bookworm-slim` | opencode + multica + cc-connect | 接入飞书（Feishu）IM 的 Agent |
+| `agent_dsh` | `node:24-bookworm-slim` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh） | 内置 DeepSeek Harness Web UI / headless 任务的 Agent 环境 |
 | `debian-slim-test` | `debian:bookworm-slim` | 基础工具（curl/git/tar） | 开发测试 |
 
 > 所有镜像均发布至 `ghcr.io/<owner>/<image-name>`，`latest` 标签仅在 `main` 分支推送时更新。
@@ -93,6 +94,26 @@ docker run -d --name agentgroup \
 docker pull ghcr.io/<owner>/agentgroup:latest
 ```
 
+### agent_dsh（DeepSeek Harness Web UI）
+
+```bash
+docker run -d --name agent_dsh \
+  -e DEEPSEEK_API_KEY="your_deepseek_key" \
+  -p 3080:3080 \
+  -v agent_dsh_data:/home/agents/.dsh \
+  -v agent_dsh_ws:/home/agents/workspace \
+  ghcr.io/<owner>/agent_dsh:latest
+```
+
+访问 `http://<host>:3080` 使用 Web UI；`dsh --profile headless "任务"` 一次性执行：
+
+```bash
+docker run --rm \
+  -e DEEPSEEK_API_KEY="your_deepseek_key" \
+  ghcr.io/<owner>/agent_dsh:latest \
+  dsh --profile headless "请总结当前工作目录"
+```
+
 ---
 
 ## 环境变量说明
@@ -119,6 +140,25 @@ docker pull ghcr.io/<owner>/agentgroup:latest
 | `CC_MODE` | 否 | OpenCode 运行模式（`default` / `acceptEdits` / `plan` / `auto` / `yolo`） |
 | `FEISHU_APP_ID` | 是 | 飞书应用 App ID |
 | `FEISHU_APP_SECRET` | 是 | 飞书应用 App Secret |
+
+### agent_dsh 额外变量
+
+| 变量名 | 必填 | 说明 |
+| --- | --- | --- |
+| `DSH_HOME` | 否 | dsh 数据目录（默认 `~/.dsh`，建议挂载卷持久化） |
+| `DSH_BIND_HOST` | 否 | Web 绑定地址（默认 `0.0.0.0`，通过 patch 覆盖 `webserver` 行实现，无需 CLI 支持） |
+| `DSH_PORT` | 否 | Web UI 监听端口（默认 `3080`） |
+| `DSH_TRUSTED_HOSTS` | 否 | 额外信任的域名/IP（逗号或空格分隔），追加到 `/api` 浏览器信任栅栏 |
+| `DSH_TOOLS_MODE` | 否 | 工具沙箱模式：`native` \| `code` \| `both`（容器内默认 `code`，规避 Landlock 限制） |
+| `DSH_WORKSPACE` | 否 | 工作目录（默认 `~/workspace`，不存在会自动创建） |
+| `DEEPSEEK_API_KEY` | 是* | DeepSeek 原生 API Key（环境变量直接生效，无需配置文件） |
+| `DSH_PROVIDER_ID` | 否 | 自定义 Provider ID（默认 `custom-provider`） |
+| `DSH_BASE_URL` | 否 | 自定义 OpenAI 兼容服务地址 |
+| `DSH_API_TOKEN` | 否 | 自定义 Provider API Key（也支持 `OPENAI_API_KEY` 别名） |
+| `DSH_MODEL` | 否 | 模型 ID 列表，**逗号分隔**支持多模型 |
+| `DSH_MODEL_DEFAULT` | 否 | 指定默认模型（未设置时自动取模型列表第一个，覆盖 headless 模式的 `deepseek-official` 默认值） |
+
+> `*`：`DEEPSEEK_API_KEY` 与 `DSH_BASE_URL`+`DSH_API_TOKEN`+`DSH_MODEL` 两种 LLM 接入方式任选其一。
 
 ---
 
@@ -153,6 +193,17 @@ docker pull ghcr.io/<owner>/agentgroup:latest
   - 配置模板备份于 `/etc/cc-connect/config.template.toml`（系统级只读目录），容器启动时自动初始化 `~/.cc-connect/config.toml`，**规避宿主机挂载空目录覆盖问题**；
   - 支持环境变量占位符（`${CC_ADMIN_FROM}`、`${CC_WORK_DIR}` 等）由 cc-connect 运行时解析。
 
+### agent_dsh（DeepSeek Harness）
+
+- **基础镜像**：`node:24-bookworm-slim`（构建阶段使用 `node:24-bookworm` 编译原生依赖）
+- **特性**：
+  - 内置 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）**，可通过 `DSH_VERSION` 构建参数调整版本（当前默认 `0.1.0-rc.6`，开发者预览版请务必固定版本）；
+  - 默认命令 `dsh web` 启动 Web UI（`http://<host>:3080`），也支持 `dsh --profile headless "任务"` 一次性执行；
+  - **Web 绑定**：dsh CLI 故意拒绝 `--host 0.0.0.0`（防远程 RCE），镜像通过 `cordis.patch.yml` 覆盖 `webserver` 行实现默认绑定 `0.0.0.0`，支持容器端口映射直接访问；
+  - **LLM 配置注入**：`DEEPSEEK_API_KEY` 原生接入，或通过 `DSH_*` 系列变量注入任意 OpenAI 兼容 provider（写入 `$DSH_HOME/settings.yaml`，凭证以 `apiKeyEnv` 引用环境变量、不进文件）；
+  - 容器内默认 `DSH_TOOLS_MODE=code`（纯 JS worker-thread 沙箱），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
+  - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化。
+
 ### debian-slim-test（开发测试）
 
 - **基础镜像**：`debian:bookworm-slim`
@@ -184,6 +235,10 @@ htcontainer/
 │   │   ├── Dockerfile
 │   │   ├── entrypoint.sh
 │   │   ├── config.template.toml
+│   │   └── .env.example
+│   ├── agent_dsh/                # DeepSeek Harness Agent 镜像
+│   │   ├── Dockerfile
+│   │   ├── entrypoint.sh
 │   │   └── .env.example
 │   └── debian-slim-test/         # 开发测试镜像
 │       └── Dockerfile
@@ -247,6 +302,10 @@ docker build --build-arg TARGETARCH=amd64 \
 # 飞书接入镜像（指定 cc-connect 版本）
 docker build --build-arg CC_VERSION=1.4.1 \
   --tag local/agent_cc-connect:test ./containers/agent_cc-connect
+
+# DeepSeek Harness 镜像（指定 dsh 版本）
+docker build --build-arg DSH_VERSION=0.1.0-rc.6 \
+  --tag local/agent_dsh:test ./containers/agent_dsh
 ```
 
 > 提示：如遇 BuildKit 语法报错，请确认 Docker 版本 ≥ 23.0 且已启用 BuildKit（`DOCKER_BUILDKIT=1`）。
