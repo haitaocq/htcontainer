@@ -202,7 +202,8 @@ docker run --rm \
   - **Web 绑定**：dsh CLI 故意拒绝 `--host 0.0.0.0`（防远程 RCE），镜像通过 `cordis.patch.yml` 覆盖 `webserver` 行实现默认绑定 `0.0.0.0`，支持容器端口映射直接访问；
   - **LLM 配置注入**：`DEEPSEEK_API_KEY` 原生接入，或通过 `DSH_*` 系列变量注入任意 OpenAI 兼容 provider（写入 `$DSH_HOME/settings.yaml`，凭证以 `apiKeyEnv` 引用环境变量、不进文件）；
   - 容器内默认 `DSH_TOOLS_MODE=code`（纯 JS worker-thread 沙箱），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
-  - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化。
+  - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化；
+  - 容器以非 root 用户 `agents` 运行（**固定 uid/gid 10001**），镜像已预建数据/工作目录并设置属主。使用具名卷可直接挂载；若 bind 挂载宿主机目录，请先 `chown -R 10001:10001 <host-dir>`。
 
 ### debian-slim-test（开发测试）
 
@@ -239,6 +240,7 @@ htcontainer/
 │   ├── agent_dsh/                # DeepSeek Harness Agent 镜像
 │   │   ├── Dockerfile
 │   │   ├── entrypoint.sh
+│   │   ├── docker-compose.yml
 │   │   └── .env.example
 │   └── debian-slim-test/         # 开发测试镜像
 │       └── Dockerfile

@@ -15,6 +15,15 @@ mkdir -p "$DSH_HOME"
 
 WORKSPACE="${DSH_WORKSPACE:-$HOME/workspace}"
 mkdir -p "$WORKSPACE"
+
+# 检查关键目录可写性，给出可执行的修复提示（根因通常是卷属主与 agents uid/gid 不一致）
+if [ ! -w "$DSH_HOME" ] || [ ! -w "$WORKSPACE" ]; then
+    echo "[dsh] Error: DSH_HOME ($DSH_HOME) or workspace ($WORKSPACE) is not writable by user $(id -un) (uid $(id -u))." >&2
+    echo "[dsh]   - 具名卷由旧镜像创建：删除后重建即可继承镜像属主（docker compose down -v）" >&2
+    echo "[dsh]   - 宿主目录 bind 挂载：请确保属主为 10001（chown -R 10001:10001 <host-dir>）" >&2
+    exit 1
+fi
+
 cd "$WORKSPACE"
 
 echo "[dsh] DSH_HOME=$DSH_HOME"

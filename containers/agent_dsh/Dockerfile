@@ -21,17 +21,22 @@ RUN npm install -g --no-audit --no-fund @deepseek-ai/dsh@${DSH_VERSION} && \
 # ==========================================
 FROM node:24-bookworm-slim
 
-# 安装运行期最小依赖并建立非 root 用户 agents
+# 安装运行期最小依赖并建立非 root 用户 agents（固定 uid/gid 10001，
+# 便于宿主目录 bind 挂载或具名卷的属主管理）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git procps && \
     rm -rf /var/lib/apt/lists/* && \
-    useradd -m -s /bin/bash agents
+    groupadd -g 10001 agents && \
+    useradd -u 10001 -g agents -m -s /bin/bash agents
 
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
 
-# 建立 dsh 可执行入口软链接
-RUN ln -sf /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh
+# 建立 dsh 可执行入口软链接，并预创建数据/工作目录（关键）：
+# 具名卷首次挂载会继承镜像中对应目录的属主，避免运行时目录为 root 属主导致写入失败
+RUN ln -sf /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh && \
+    mkdir -p /home/agents/.dsh /home/agents/workspace && \
+    chown -R 10001:10001 /home/agents
 
 # 复制入口脚本并设置 755 可执行权限
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
