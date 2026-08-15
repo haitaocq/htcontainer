@@ -125,7 +125,8 @@ EOF
     # 构造 --trusted-host 参数（浏览器信任栅栏），逗号或空格分隔
     TRUSTED_HOSTS_ARGS=()
     if [ -n "${DSH_TRUSTED_HOSTS:-}" ]; then
-        for h in $(echo "$DSH_TRUSTED_HOSTS" | tr ', ' ' '); do
+        IFS=', ' read -ra TRUSTED_HOSTS_ARR <<< "$DSH_TRUSTED_HOSTS"
+        for h in "${TRUSTED_HOSTS_ARR[@]}"; do
             [ -n "$h" ] && TRUSTED_HOSTS_ARGS+=(--trusted-host "$h")
         done
     fi
@@ -155,25 +156,38 @@ EOF
     "$@" --port "$upstream_port" &
     local dsh_pid=$!
 
-    # 等待 dsh 就绪后再启动 Caddy，避免首个请求命中 502
+    # 等待 dsh 就绪后再启动 Caddy，避免首个请求命中 502；
+    # 若 dsh 提前退出（如配置错误），立即进入 wait 流程传播其退出码
+    local dsh_alive=1
     for _ in $(seq 1 60); do
+        if ! kill -0 "$dsh_pid" 2>/dev/null; then
+            dsh_alive=0
+            break
+        fi
         if curl -fsS -o /dev/null "http://127.0.0.1:${upstream_port}/" 2>/dev/null; then
             break
         fi
         sleep 1
     done
 
-    caddy run --config "$caddyfile" --adapter caddyfile &
-    local caddy_pid=$!
+    if [ "$dsh_alive" = "1" ] && kill -0 "$dsh_pid" 2>/dev/null; then
+        caddy run --config "$caddyfile" --adapter caddyfile &
+        local caddy_pid=$!
 
-    shutdown() { kill "$dsh_pid" "$caddy_pid" 2>/dev/null || true; }
-    trap shutdown TERM INT QUIT
+        shutdown() { kill "$dsh_pid" "$caddy_pid" 2>/dev/null || true; }
+        trap shutdown TERM INT QUIT
 
+        local code=0
+        wait -n "$dsh_pid" "$caddy_pid" 2>/dev/null || code=$?
+        shutdown
+        wait "$dsh_pid" 2>/dev/null || true
+        wait "$caddy_pid" 2>/dev/null || true
+        exit "$code"
+    fi
+
+    # dsh 启动失败：等待其退出并传播退出码
     local code=0
-    wait -n "$dsh_pid" "$caddy_pid" 2>/dev/null || code=$?
-    shutdown
-    wait "$dsh_pid" 2>/dev/null || true
-    wait "$caddy_pid" 2>/dev/null || true
+    wait "$dsh_pid" 2>/dev/null || code=$?
     exit "$code"
 }
 

@@ -32,8 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
 
-# 内置 Caddy 作为 Web 前置反向代理（静态 Go 二进制，从官方镜像复制，随平台架构自动匹配）
-COPY --from=caddy:2-alpine /usr/bin/caddy /usr/local/bin/caddy
+# 内置 Caddy 作为 Web 前置反向代理（静态 Go 二进制，从官方镜像复制，随平台架构自动匹配；
+# 版本锁定保证可复现构建）
+COPY --from=caddy:2.11.4-alpine /usr/bin/caddy /usr/local/bin/caddy
 
 # 注入 crypto.randomUUID polyfill（构建期）：修复非安全上下文（HTTP / 非 localhost）
 # 访问 Web UI 时浏览器报 "crypto.randomUUID is not a function" 的问题

@@ -1,5 +1,4 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 // 构建期脚本：向 dsh Web 前端 dist/index.html 注入 crypto.randomUUID polyfill。
 //
