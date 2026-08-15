@@ -32,6 +32,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
 
+# 注入 crypto.randomUUID polyfill（构建期）：修复非安全上下文（HTTP / 非 localhost）
+# 访问 Web UI 时浏览器报 "crypto.randomUUID is not a function" 的问题
+COPY patch-frontend.mjs /tmp/patch-frontend.mjs
+RUN DSH_FRONTEND_INDEX="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html" \
+    node /tmp/patch-frontend.mjs && \
+    rm -f /tmp/patch-frontend.mjs
+
 # 建立 dsh 可执行入口软链接，并预创建数据/工作目录（关键）：
 # 具名卷首次挂载会继承镜像中对应目录的属主，避免运行时目录为 root 属主导致写入失败
 RUN ln -sf /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh && \
