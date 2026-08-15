@@ -148,7 +148,7 @@ docker run --rm \
 | `DSH_HOME` | 否 | dsh 数据目录（默认 `~/.dsh`，建议挂载卷持久化） |
 | `DSH_BIND_HOST` | 否 | Web 绑定地址（默认 `0.0.0.0`，通过 patch 覆盖 `webserver` 行实现，无需 CLI 支持） |
 | `DSH_PORT` | 否 | Web UI 监听端口（默认 `3080`） |
-| `DSH_TRUSTED_HOSTS` | 否 | 额外信任的域名/IP（逗号或空格分隔），追加到 `/api` 浏览器信任栅栏 |
+| `DSH_TRUSTED_HOSTS` | 否* | 浏览器访问 Web UI 所用的地址（IP/域名，逗号或空格分隔）。非 localhost 访问时**必须**设置，否则 `/api` 信任栅栏返回 403（报 `transport failure for /api/...: HTTP 403`）。已测试 `192.168.1.50` 等宿主 IP |
 | `DSH_TOOLS_MODE` | 否 | 工具沙箱模式：`native` \| `code` \| `both`（容器内默认 `code`，规避 Landlock 限制） |
 | `DSH_WORKSPACE` | 否 | 工作目录（默认 `~/workspace`，不存在会自动创建） |
 | `DEEPSEEK_API_KEY` | 是* | DeepSeek 原生 API Key（环境变量直接生效，无需配置文件） |
@@ -159,6 +159,8 @@ docker run --rm \
 | `DSH_MODEL_DEFAULT` | 否 | 指定默认模型（未设置时自动取模型列表第一个，覆盖 headless 模式的 `deepseek-official` 默认值） |
 
 > `*`：`DEEPSEEK_API_KEY` 与 `DSH_BASE_URL`+`DSH_API_TOKEN`+`DSH_MODEL` 两种 LLM 接入方式任选其一。
+
+> `*`（`DSH_TRUSTED_HOSTS`）：必须与浏览器地址栏的 host 一致。用 `http://localhost:3080` 访问可免设置；用宿主机 IP/域名访问必须填入该地址。示例：`DSH_TRUSTED_HOSTS=192.168.1.50`
 
 ---
 
