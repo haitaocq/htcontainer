@@ -162,6 +162,8 @@ docker run --rm \
 
 > `*`（`DSH_TRUSTED_HOSTS`）：必须与浏览器地址栏的 host 一致。用 `http://localhost:3080` 访问可免设置；用宿主机 IP/域名访问必须填入该地址。示例：`DSH_TRUSTED_HOSTS=192.168.1.50`
 
+> **注意（设置/模型页）**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*），即便设置了 `DSH_TRUSTED_HOSTS` 也会返回 403（`transport failure for /api/settings.describe`）。这类页面只能通过 `http://localhost:3080` 使用。浏览器不在容器宿主机上时，先建立 SSH 隧道：`ssh -L 3080:localhost:3080 <host>`，再访问 `http://localhost:3080`。其余普通功能（会话、目录选择、provider 目录）不受影响。
+
 ---
 
 ## 镜像详细介绍
