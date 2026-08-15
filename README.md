@@ -146,9 +146,11 @@ docker run --rm \
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
 | `DSH_HOME` | 否 | dsh 数据目录（默认 `~/.dsh`，建议挂载卷持久化） |
-| `DSH_BIND_HOST` | 否 | Web 绑定地址（默认 `0.0.0.0`，通过 patch 覆盖 `webserver` 行实现，无需 CLI 支持） |
-| `DSH_PORT` | 否 | Web UI 监听端口（默认 `3080`） |
-| `DSH_TRUSTED_HOSTS` | 否* | 浏览器访问 Web UI 所用的地址（IP/域名，逗号或空格分隔）。非 localhost 访问时**必须**设置，否则 `/api` 信任栅栏返回 403（报 `transport failure for /api/...: HTTP 403`）。已测试 `192.168.1.50` 等宿主 IP |
+| `DSH_CADDY` | 否 | 内嵌 Caddy 前置反向代理（默认 `true`）。开启后 dsh 内部仅绑定 `127.0.0.1:DSH_UPSTREAM_PORT`，Caddy 对外监听 `DSH_PORT` 并把 Host/Origin 改写为 `localhost`，使远程浏览器也能使用设置/模型页 |
+| `DSH_PORT` | 否 | Web UI 对外监听端口（Caddy，默认 `3080`） |
+| `DSH_UPSTREAM_PORT` | 否 | dsh 内部监听端口（仅 `127.0.0.1`，默认 `3081`，不要对外映射） |
+| `DSH_BIND_HOST` | 否 | 仅 `DSH_CADDY=false` 直连模式生效：Web 绑定地址（默认 `0.0.0.0`，通过 patch 覆盖 `webserver` 行实现，无需 CLI 支持） |
+| `DSH_TRUSTED_HOSTS` | 否 | 仅 `DSH_CADDY=false` 直连模式生效：浏览器访问 Web UI 所用的地址（IP/域名，逗号或空格分隔），否则 `/api` 信任栅栏返回 403 |
 | `DSH_TOOLS_MODE` | 否 | 工具沙箱模式：`native` \| `code` \| `both`（容器内默认 `code`，规避 Landlock 限制） |
 | `DSH_WORKSPACE` | 否 | 工作目录（默认 `~/workspace`，不存在会自动创建） |
 | `DEEPSEEK_API_KEY` | 是* | DeepSeek 原生 API Key（环境变量直接生效，无需配置文件） |
@@ -160,9 +162,7 @@ docker run --rm \
 
 > `*`：`DEEPSEEK_API_KEY` 与 `DSH_BASE_URL`+`DSH_API_TOKEN`+`DSH_MODEL` 两种 LLM 接入方式任选其一。
 
-> `*`（`DSH_TRUSTED_HOSTS`）：必须与浏览器地址栏的 host 一致。用 `http://localhost:3080` 访问可免设置；用宿主机 IP/域名访问必须填入该地址。示例：`DSH_TRUSTED_HOSTS=192.168.1.50`
-
-> **注意（设置/模型页）**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*），即便设置了 `DSH_TRUSTED_HOSTS` 也会返回 403（`transport failure for /api/settings.describe`）。这类页面只能通过 `http://localhost:3080` 使用。浏览器不在容器宿主机上时，先建立 SSH 隧道：`ssh -L 3080:localhost:3080 <host>`，再访问 `http://localhost:3080`。其余普通功能（会话、目录选择、provider 目录）不受影响。
+> **设置/模型页说明**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*）。默认 `DSH_CADDY=true` 时，容器内置的 Caddy 通过改写 Host/Origin 为 `localhost` 解决该限制，远程浏览器即可正常使用并持久化设置，**无需** `DSH_TRUSTED_HOSTS`；若设置 `DSH_CADDY=false` 走直连模式，这类页面仍只能通过 `http://localhost:3080`（或 SSH 隧道 `ssh -L 3080:localhost:3080 <host>`）访问。
 
 ---
 
@@ -203,7 +203,7 @@ docker run --rm \
 - **特性**：
   - 内置 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）**，可通过 `DSH_VERSION` 构建参数调整版本（当前默认 `0.1.0-rc.6`，开发者预览版请务必固定版本）；
   - 默认命令 `dsh web` 启动 Web UI（`http://<host>:3080`），也支持 `dsh --profile headless "任务"` 一次性执行；
-  - **Web 绑定**：dsh CLI 故意拒绝 `--host 0.0.0.0`（防远程 RCE），镜像通过 `cordis.patch.yml` 覆盖 `webserver` 行实现默认绑定 `0.0.0.0`，支持容器端口映射直接访问；
+  - **内嵌 Caddy 反向代理**（默认开启，`DSH_CADDY=true`）：dsh 内部仅绑定 `127.0.0.1:DSH_UPSTREAM_PORT`，Caddy 对外监听 `DSH_PORT` 并把 Host/Origin 改写为 `localhost`。这样既规避了 dsh CLI 对 `--host 0.0.0.0` 的拒绝（无需 0.0.0.0 patch），又绕开了 `settings.describe` / `credentials.*` / `llm.discoverModels` 等特权 RPC 的 loopback 钉死，远程浏览器即可正常使用设置/模型页并持久化。设 `DSH_CADDY=false` 可回退为直连模式（`cordis.patch.yml` 绑定 `0.0.0.0` + `DSH_TRUSTED_HOSTS`）；
   - **LLM 配置注入**：`DEEPSEEK_API_KEY` 原生接入，或通过 `DSH_*` 系列变量注入任意 OpenAI 兼容 provider（写入 `$DSH_HOME/settings.yaml`，凭证以 `apiKeyEnv` 引用环境变量、不进文件）；
   - 容器内默认 `DSH_TOOLS_MODE=code`（纯 JS worker-thread 沙箱），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
   - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化；

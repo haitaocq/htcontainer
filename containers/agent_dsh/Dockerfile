@@ -32,6 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
 
+# 内置 Caddy 作为 Web 前置反向代理（静态 Go 二进制，从官方镜像复制，随平台架构自动匹配）
+COPY --from=caddy:2-alpine /usr/bin/caddy /usr/local/bin/caddy
+
 # 注入 crypto.randomUUID polyfill（构建期）：修复非安全上下文（HTTP / 非 localhost）
 # 访问 Web UI 时浏览器报 "crypto.randomUUID is not a function" 的问题
 COPY patch-frontend.mjs /tmp/patch-frontend.mjs
@@ -54,9 +57,14 @@ WORKDIR /home/agents/workspace
 
 # dsh 数据目录（可挂载卷持久化）
 ENV DSH_HOME=/home/agents/.dsh
-# 默认绑定 0.0.0.0（通过 cordis.patch.yml 覆盖 webserver 行，绕过 CLI 对 0.0.0.0 的限制）
-ENV DSH_BIND_HOST=0.0.0.0
+# 内嵌 Caddy 前置反向代理（默认开启）：dsh 内部绑定 loopback，Caddy 对外监听
+# DSH_PORT 并把 Host/Origin 改写为 localhost，从而放行 /api 中 loopback-only 的
+# 特权 RPC（settings.describe / credentials.* / llm.discoverModels 等）
+ENV DSH_CADDY=true
+# 对外监听端口（Caddy）
 ENV DSH_PORT=3080
+# dsh 内部监听端口（仅 127.0.0.1，由 Caddy 反代）
+ENV DSH_UPSTREAM_PORT=3081
 # 容器内默认使用 code 模式沙箱（纯 JS worker-thread，规避 Landlock 在 seccomp 下的限制）
 ENV DSH_TOOLS_MODE=code
 

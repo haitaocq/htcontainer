@@ -96,47 +96,111 @@ elif [ -n "$DSH_BASE_URL" ] || [ -n "$DSH_MODELS" ] || [ -n "$DSH_API_TOKEN" ]; 
 fi
 
 # --------------------------------------------------
-# 2. 生成 Web 绑定补丁（默认 0.0.0.0）
+# 2. Web 启动方式准备
 # --------------------------------------------------
-# dsh web CLI 故意拒绝 --host 0.0.0.0（防远程 RCE），
-# 这里通过 cordis.patch.yml 覆盖 webserver 行的 host 来绕过。
-# 宿主可通过 DSH_BIND_HOST 改为 127.0.0.1 恢复安全默认。
-BIND_HOST="${DSH_BIND_HOST:-0.0.0.0}"
-BIND_PATCH="$DSH_HOME/cordis-bind.patch.yml"
-cat > "$BIND_PATCH" <<EOF
+# 方式 A（默认，DSH_CADDY=true）：内嵌 Caddy 前置反向代理。
+#   dsh 内部绑定 127.0.0.1:DSH_UPSTREAM_PORT，Caddy 对外监听 DSH_PORT，
+#   并把 Host/Origin 改写为 localhost，使 /api 中刻意钉死在 loopback 的特权 RPC
+#   （settings.describe、credentials.*、llm.discoverModels 等）也能在远程浏览器
+#   中使用并持久化。无需 --host 0.0.0.0 patch，无需 DSH_TRUSTED_HOSTS。
+# 方式 B（DSH_CADDY=false）：维持直连模式，通过 cordis.patch.yml 把 webserver 绑定
+#   到 0.0.0.0（绕过 dsh web CLI 对 0.0.0.0 的拒绝），由 DSH_TRUSTED_HOSTS 声明信任。
+if [ "$DSH_CADDY" = "true" ]; then
+    # Caddy 配置/数据目录放入 DSH_HOME，避免在容器层留下 root 无法预知的状态
+    export XDG_CONFIG_HOME="$DSH_HOME/caddy-config"
+    export XDG_DATA_HOME="$DSH_HOME/caddy-data"
+    CADDYFILE="$DSH_HOME/Caddyfile"
+    mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+else
+    # 方式 B：生成 Web 绑定补丁
+    BIND_HOST="${DSH_BIND_HOST:-0.0.0.0}"
+    BIND_PATCH="$DSH_HOME/cordis-bind.patch.yml"
+    cat > "$BIND_PATCH" <<EOF
 - id: webserver
   config:
     host: $BIND_HOST
     port: !!js ctx.webStartup.port ?? 3080
 EOF
 
-# 构造 --trusted-host 参数（浏览器信任栅栏），逗号或空格分隔
-TRUSTED_HOSTS_ARGS=()
-if [ -n "${DSH_TRUSTED_HOSTS:-}" ]; then
-    for h in $(echo "$DSH_TRUSTED_HOSTS" | tr ', ' ' '); do
-        [ -n "$h" ] && TRUSTED_HOSTS_ARGS+=(--trusted-host "$h")
-    done
+    # 构造 --trusted-host 参数（浏览器信任栅栏），逗号或空格分隔
+    TRUSTED_HOSTS_ARGS=()
+    if [ -n "${DSH_TRUSTED_HOSTS:-}" ]; then
+        for h in $(echo "$DSH_TRUSTED_HOSTS" | tr ', ' ' '); do
+            [ -n "$h" ] && TRUSTED_HOSTS_ARGS+=(--trusted-host "$h")
+        done
+    fi
 fi
 
 # --------------------------------------------------
 # 3. 运行模式判断
 # --------------------------------------------------
+# 内嵌 Caddy 模式：dsh 与 Caddy 均为后台进程，entrypoint 作为 PID 1 负责信号转发，
+# 任一进程退出则终止另一个并按对应退出码退出（供 Docker 重启策略/健康检查使用）
+start_web_with_caddy() {
+    local upstream_port="${DSH_UPSTREAM_PORT:-3081}"
+    local listen_port="${DSH_PORT:-3080}"
+    local caddyfile="$DSH_HOME/Caddyfile"
+
+    cat > "$caddyfile" <<EOF
+:$listen_port {
+    reverse_proxy 127.0.0.1:$upstream_port {
+        header_up Host localhost:$upstream_port
+        header_up Origin http://localhost:$upstream_port
+        header_up Sec-Fetch-Site same-origin
+    }
+}
+EOF
+
+    echo "[dsh] Starting Web UI via embedded Caddy: 0.0.0.0:${listen_port} -> 127.0.0.1:${upstream_port}"
+    "$@" --port "$upstream_port" &
+    local dsh_pid=$!
+
+    # 等待 dsh 就绪后再启动 Caddy，避免首个请求命中 502
+    for _ in $(seq 1 60); do
+        if curl -fsS -o /dev/null "http://127.0.0.1:${upstream_port}/" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+
+    caddy run --config "$caddyfile" --adapter caddyfile &
+    local caddy_pid=$!
+
+    shutdown() { kill "$dsh_pid" "$caddy_pid" 2>/dev/null || true; }
+    trap shutdown TERM INT QUIT
+
+    local code=0
+    wait -n "$dsh_pid" "$caddy_pid" 2>/dev/null || code=$?
+    shutdown
+    wait "$dsh_pid" 2>/dev/null || true
+    wait "$caddy_pid" 2>/dev/null || true
+    exit "$code"
+}
+
 if [ "$1" = "web" ]; then
     shift
-    echo "[dsh] Starting Web UI on ${BIND_HOST}:${DSH_PORT:-3080}..."
-    exec dsh web \
-        --patch "$BIND_PATCH" \
-        --port "${DSH_PORT:-3080}" \
-        "${TRUSTED_HOSTS_ARGS[@]}" \
-        "$@"
+    if [ "$DSH_CADDY" = "true" ]; then
+        start_web_with_caddy dsh web "$@"
+    else
+        echo "[dsh] Starting Web UI on ${BIND_HOST}:${DSH_PORT:-3080}..."
+        exec dsh web \
+            --patch "$BIND_PATCH" \
+            --port "${DSH_PORT:-3080}" \
+            "${TRUSTED_HOSTS_ARGS[@]}" \
+            "$@"
+    fi
 elif [ "$1" = "--profile" ] && [ "$2" = "web" ]; then
     shift 2
-    echo "[dsh] Starting Web UI on ${BIND_HOST}:${DSH_PORT:-3080}..."
-    exec dsh --profile web \
-        --patch "$BIND_PATCH" \
-        --port "${DSH_PORT:-3080}" \
-        "${TRUSTED_HOSTS_ARGS[@]}" \
-        "$@"
+    if [ "$DSH_CADDY" = "true" ]; then
+        start_web_with_caddy dsh --profile web "$@"
+    else
+        echo "[dsh] Starting Web UI on ${BIND_HOST}:${DSH_PORT:-3080}..."
+        exec dsh --profile web \
+            --patch "$BIND_PATCH" \
+            --port "${DSH_PORT:-3080}" \
+            "${TRUSTED_HOSTS_ARGS[@]}" \
+            "$@"
+    fi
 elif [ "$1" = "tail" ] && [ "$2" = "-f" ]; then
     echo "[dsh] Container is ready and running in background..."
     while true; do

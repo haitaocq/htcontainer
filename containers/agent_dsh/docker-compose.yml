@@ -13,6 +13,10 @@
 #     删除容器数据不丢失；如需挂载宿主目录改为绝对路径即可
 #   - 容器内 agents 用户固定 uid/gid 10001。若改为宿主机目录 bind 挂载，
 #     请确保该目录属主为 10001（chown -R 10001:10001 <host-dir>）
+#   - 默认 DSH_CADDY=true：容器内置 Caddy 前置反向代理，dsh 内部仅绑定
+#     127.0.0.1:3081。远程浏览器访问设置/模型页（settings.describe、
+#     llm.discoverModels 等 loopback-only RPC）无需 DSH_TRUSTED_HOSTS
+#   - 端口映射只暴露 ${DSH_PORT}（Caddy），dsh 内部端口 3081 不会对外
 
 services:
   agent_dsh:
@@ -27,8 +31,11 @@ services:
     environment:
       # ---- dsh 基础配置 ----
       - DSH_HOME=/home/agents/.dsh
-      - DSH_BIND_HOST=${DSH_BIND_HOST:-0.0.0.0}
+      - DSH_CADDY=${DSH_CADDY:-true}
       - DSH_PORT=${DSH_PORT:-3080}
+      - DSH_UPSTREAM_PORT=${DSH_UPSTREAM_PORT:-3081}
+      # DSH_BIND_HOST / DSH_TRUSTED_HOSTS 仅在 DSH_CADDY=false 直连模式下生效
+      - DSH_BIND_HOST=${DSH_BIND_HOST:-0.0.0.0}
       - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
       - DSH_TOOLS_MODE=${DSH_TOOLS_MODE:-code}
       - DSH_WORKSPACE=/home/agents/workspace
