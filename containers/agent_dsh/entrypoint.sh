@@ -102,6 +102,33 @@ fi
 # 已存在有效认证配置时才登录并后台拉起 daemon；否则仅提示后跳过，
 # dsh Web UI / headless 依旧正常启动。
 MULTICA_CONFIG_FILE="${HOME}/.multica/config.json"
+MULTICA_PROFILE_SRC="/usr/local/share/dsh/multica-profile"
+MULTICA_PROFILE_DST="${DSH_HOME:-${HOME}/.dsh}/profiles/multica"
+
+# 确保 multica 所需的 dsh runtime profile 存在：
+# daemon 只有检测到 `dsh --profile multica --probe` 返回协议版本 1 才会注册 dsh runtime，
+# 否则报 "DSH Multica runtime profile is not installed" 后整体退出。镜像构建期已把 profile
+# 分别写入 $DSH_HOME 与出厂备份 /usr/local/share/dsh/multica-profile；此处兜底覆盖旧具名卷
+# 场景——若 $DSH_HOME 内缺失（旧卷未继承镜像内容），则从备份复制补齐。
+ensure_multica_profile() {
+    if [ ! -f "${MULTICA_PROFILE_DST}/package.json" ]; then
+        if [ -d "$MULTICA_PROFILE_SRC" ]; then
+            echo "[Multica] DSH runtime profile missing under ${DSH_HOME:-${HOME}/.dsh}, restoring from image backup..."
+            mkdir -p "$(dirname "$MULTICA_PROFILE_DST")"
+            cp -a "$MULTICA_PROFILE_SRC" "$MULTICA_PROFILE_DST"
+            chown -R 10001:10001 "$(dirname "$MULTICA_PROFILE_DST")" 2>/dev/null || true
+            echo "[Multica] DSH runtime profile restored."
+        else
+            echo "[Multica] Warning: DSH runtime profile not found in image (${MULTICA_PROFILE_SRC})." >&2
+        fi
+    fi
+    # 校验 probe（daemon 的注册条件），失败则告警但不阻断 dsh 主进程
+    if cd "${HOME}/workspace" 2>/dev/null && dsh --profile multica --probe >/dev/null 2>&1; then
+        echo "[Multica] DSH runtime profile OK (probe protocol v1)."
+    else
+        echo "[Multica] Warning: dsh multica runtime profile probe failed; multica daemon may not register dsh." >&2
+    fi
+}
 
 multica_authenticated() {
     if [ ! -f "$MULTICA_CONFIG_FILE" ]; then
@@ -138,6 +165,7 @@ if [ -n "${MULTICA_TOKEN:-}" ] || [ -n "${MUL_TOKEN:-}" ] || multica_authenticat
     if [ "${skip_multica:-}" = "1" ]; then
         echo "[Multica] Skipped due to failed login."
     else
+        ensure_multica_profile
         retry_multica_daemon() {
             local max_retries=30 retry_interval=5 count=0
             while [ "$count" -lt "$max_retries" ]; do

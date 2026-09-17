@@ -20,7 +20,14 @@ ARG DSH_VERSION=0.1.5-rc.1
 RUN npm install -g --no-audit --no-fund @deepseek-ai/dsh@${DSH_VERSION} && \
     find /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds \
         -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} + && \
-    curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash && \
+    corepack enable && corepack prepare pnpm@12.4.2 --activate && \
+    git clone --depth 1 https://github.com/multica-ai/dsh-multica-runtime.git /build/dsh-multica-runtime && \
+    cd /build/dsh-multica-runtime && \
+    git checkout e29aae228449dfe50e88af60ef4281e38ca44e2a && \
+    pnpm install --frozen-lockfile && \
+    pnpm build && \
+    pnpm pack --pack-destination /build/
 
 # ==========================================
 # 阶段 2: 最终生产运行镜像
@@ -67,6 +74,23 @@ RUN DSH_FRONTEND_INDEX="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_module
 RUN ln -sf /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh && \
     mkdir -p /home/agents/.dsh /home/agents/workspace && \
     chown -R 10001:10001 /home/agents
+
+# 安装 multica 的 DSH runtime profile（dsh-multica-runtime 私有桥接包）：
+# multica daemon 仅在 `dsh --profile multica --probe` 返回协议版本 1 时才注册
+# DeepSeek Harness runtime；否则报 "DSH Multica runtime profile is not installed"
+# 并因无法注册任何 runtime 而整体退出。
+# 关键点：profile 先装入 $DSH_HOME（= /home/agents/.dsh/profiles/multica），再复制一份
+# 到镜像内独立路径 /usr/local/share/dsh/multica-profile 作"出厂备份"。由于 /home/agents/.dsh
+# 通常被具名卷挂载，若卷已是旧版本创建的，构建期写入 $DSH_HOME 的 profile 不会出现在卷内；
+# 故 entrypoint 在启动 multica daemon 前会检测 profile 是否存在，缺失时从备份路径复制补齐，
+# 从而兼容旧具名卷场景。
+COPY --from=builder /build/multica-ai-dsh-runtime-0.1.0-private.1.tgz /tmp/multica-dsh-runtime.tgz
+RUN corepack enable && corepack prepare pnpm@12.4.2 --activate && \
+    DSH_HOME=/home/agents/.dsh dsh plugin --profile multica add /tmp/multica-dsh-runtime.tgz && \
+    rm -f /tmp/multica-dsh-runtime.tgz && \
+    mkdir -p /usr/local/share/dsh && \
+    cp -a /home/agents/.dsh/profiles/multica /usr/local/share/dsh/multica-profile && \
+    chown -R 10001:10001 /home/agents/.dsh /usr/local/share/dsh
 
 # 复制入口脚本并设置 755 可执行权限
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
