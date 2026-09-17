@@ -96,7 +96,84 @@ elif [ -n "$DSH_BASE_URL" ] || [ -n "$DSH_MODELS" ] || [ -n "$DSH_API_TOKEN" ]; 
 fi
 
 # --------------------------------------------------
-# 2. Web 启动方式准备
+# 2. Multica 客户端（可选增强，不影响 dsh 主进程）
+# --------------------------------------------------
+# multica 为可选能力：仅当设置了 MULTICA_TOKEN（或 MUL_TOKEN 别名）或容器内
+# 已存在有效认证配置时才登录并后台拉起 daemon；否则仅提示后跳过，
+# dsh Web UI / headless 依旧正常启动。
+MULTICA_CONFIG_FILE="${HOME}/.multica/config.json"
+
+multica_authenticated() {
+    if [ ! -f "$MULTICA_CONFIG_FILE" ]; then
+        return 1
+    fi
+    local local_token
+    local_token=$(grep -i '"token"' "$MULTICA_CONFIG_FILE" 2>/dev/null | cut -d'"' -f4 || true)
+    [ -n "$local_token" ] || return 1
+    multica auth status >/dev/null 2>&1
+}
+
+if [ -n "${MULTICA_TOKEN:-}" ] || [ -n "${MUL_TOKEN:-}" ] || multica_authenticated; then
+    echo "[Multica] Checking authentication status..."
+    if multica_authenticated; then
+        echo "[Multica] Already authenticated."
+    else
+        echo "[Multica] Configuring and logging in..."
+        if [ -n "${MULTICA_SERVER_URL:-}" ]; then
+            multica config set server_url "$MULTICA_SERVER_URL"
+        fi
+        if [ -n "${MULTICA_APP_URL:-}" ]; then
+            multica config set app_url "$MULTICA_APP_URL"
+        fi
+        # 登录失败仅告警，不阻断 dsh 主进程（multica 为可选能力）
+        if multica login --token "${MUL_TOKEN:-$MULTICA_TOKEN}"; then
+            echo "[Multica] Login successful."
+        else
+            echo "[Multica] Warning: login failed with the provided token. Skipping daemon." >&2
+            skip_multica=1
+        fi
+    fi
+
+    # 后台启动 daemon；首次失败则后台重试（不阻塞 dsh 主进程）
+    if [ "${skip_multica:-}" = "1" ]; then
+        echo "[Multica] Skipped due to failed login."
+    else
+        retry_multica_daemon() {
+            local max_retries=30 retry_interval=5 count=0
+            while [ "$count" -lt "$max_retries" ]; do
+                count=$((count + 1))
+                echo "[Multica Daemon Retry] Attempt $count/$max_retries..."
+                sleep "$retry_interval"
+                if multica daemon start; then
+                    echo "[Multica Daemon Retry] Daemon started successfully on attempt $count."
+                    return 0
+                fi
+            done
+            echo "[Multica] Warning: daemon failed to start after $max_retries retries." >&2
+            return 1
+        }
+
+        echo "[Multica] Starting background daemon..."
+        if multica daemon start; then
+            echo "[Multica] Daemon started successfully."
+        else
+            echo "[Multica] Warning: daemon failed to start initially. Spawning background retry process..."
+            retry_multica_daemon &
+        fi
+    fi
+
+    # 优雅退出：收到终止信号时停止 multica daemon 再退出
+    cleanup() {
+        multica daemon stop 2>/dev/null || true
+        exit 0
+    }
+    trap 'cleanup' TERM INT
+else
+    echo "[Multica] Skipped (set MULTICA_TOKEN or MUL_TOKEN to enable)."
+fi
+
+# --------------------------------------------------
+# 3. Web 启动方式准备
 # --------------------------------------------------
 # 方式 A（默认，DSH_CADDY=true）：内嵌 Caddy 前置反向代理。
 #   dsh 内部绑定 127.0.0.1:DSH_UPSTREAM_PORT，Caddy 对外监听 DSH_PORT，
@@ -133,7 +210,7 @@ EOF
 fi
 
 # --------------------------------------------------
-# 3. 运行模式判断
+# 4. 运行模式判断
 # --------------------------------------------------
 # 内嵌 Caddy 模式：dsh 与 Caddy 均为后台进程，entrypoint 作为 PID 1 负责信号转发，
 # 任一进程退出则终止另一个并按对应退出码退出（供 Docker 重启策略/健康检查使用）
@@ -178,7 +255,7 @@ EOF
         caddy run --config "$caddyfile" --adapter caddyfile &
         local caddy_pid=$!
 
-        shutdown() { kill "$dsh_pid" "$caddy_pid" 2>/dev/null || true; }
+        shutdown() { kill "$dsh_pid" "$caddy_pid" 2>/dev/null || true; multica daemon stop 2>/dev/null || true; }
         trap shutdown TERM INT QUIT
 
         local code=0

@@ -19,7 +19,8 @@ ARG DSH_VERSION=0.1.5-rc.1
 # 保留全部 linux-* 预编译包，兼顾 amd64 / arm64 多平台构建。
 RUN npm install -g --no-audit --no-fund @deepseek-ai/dsh@${DSH_VERSION} && \
     find /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds \
-        -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} +
+        -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} + && \
+    curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash
 
 # ==========================================
 # 阶段 2: 最终生产运行镜像
@@ -36,6 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
+
+# 复制 multica 客户端（构建阶段下载的静态二进制）
+COPY --from=builder /usr/local/bin/multica /usr/local/bin/multica
 
 # 修复 dsh ≥0.1.5 远程浏览器设置/模型页不可用问题（客户端 loopback 判定补丁）：
 # 0.1.5 起 settings.describe 等配置类 RPC 改为仅当浏览器自身地址为 loopback 时才可用，

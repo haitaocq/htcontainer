@@ -51,6 +51,11 @@ services:
       - DSH_MODEL=${DSH_MODEL:-}
       - DSH_MODEL_DEFAULT=${DSH_MODEL_DEFAULT:-}
 
+      # ---- multica 客户端（可选增强，不配置不影响 dsh 正常运行）----
+      - MULTICA_TOKEN=${MULTICA_TOKEN:-}
+      - MULTICA_SERVER_URL=${MULTICA_SERVER_URL:-}
+      - MULTICA_APP_URL=${MULTICA_APP_URL:-}
+
 volumes:
   dsh_data:
   dsh_workspace:
