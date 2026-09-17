@@ -37,6 +37,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制已安装的 dsh 及其全部依赖（含编译好的 node-pty 二进制）
 COPY --from=builder /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
 
+# 修复 dsh ≥0.1.5 远程浏览器设置/模型页不可用问题（客户端 loopback 判定补丁）：
+# 0.1.5 起 settings.describe 等配置类 RPC 改为仅当浏览器自身地址为 loopback 时才可用，
+# Caddy 改写 Host/Origin 已无法影响该客户端判定，远程浏览器报
+# "settings are unavailable in this browser"。此处对下发到浏览器的 client bundle
+# 强制 isLoopback=true，恢复远程设置能力（仍受浏览器令牌认证保护）
+COPY patch-settings-loopback.mjs /tmp/patch-settings-loopback.mjs
+RUN DSH_CONNECTION_CLIENT="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js" \
+    node /tmp/patch-settings-loopback.mjs && \
+    rm -f /tmp/patch-settings-loopback.mjs
+
 # 内置 Caddy 作为 Web 前置反向代理（静态 Go 二进制，从官方镜像复制，随平台架构自动匹配；
 # 版本锁定保证可复现构建）
 COPY --from=caddy:2.11.4-alpine /usr/bin/caddy /usr/local/bin/caddy

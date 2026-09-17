@@ -162,7 +162,7 @@ docker run --rm \
 
 > `*`：`DEEPSEEK_API_KEY` 与 `DSH_BASE_URL`+`DSH_API_TOKEN`+`DSH_MODEL` 两种 LLM 接入方式任选其一。
 
-> **设置/模型页说明**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*）。默认 `DSH_CADDY=true` 时，容器内置的 Caddy 通过改写 Host/Origin 为 `localhost` 解决该限制，远程浏览器即可正常使用并持久化设置，**无需** `DSH_TRUSTED_HOSTS`；dsh ≥0.1.5 起 Web UI 还要求**启动令牌认证**（令牌随机生成、见 `docker logs`），首次访问经 `?token=...` 登录后，Caddy 会把后续请求的 Host/Origin 改写为 `localhost` 自动放行。若设置 `DSH_CADDY=false` 走直连模式，这类页面仍只能通过 `http://localhost:3080`（或 SSH 隧道 `ssh -L 3080:localhost:3080 <host>`）访问。
+> **设置/模型页说明**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**。dsh ≤0.1.0-rc.6 由服务器按请求 Host 判定，Caddy 改写 Host/Origin 为 `localhost` 即可放行；**dsh ≥0.1.5 改为客户端判定**（`window.location.hostname` 是否 loopback），服务器无法通过改写头部影响，远程浏览器会报 "settings are unavailable in this browser"。`agent_dsh` 镜像已在构建期对下发到浏览器的 client bundle 打补丁（强制 `isLoopback=true`，见 `patch-settings-loopback.mjs`），配合内置的令牌认证，**远程浏览器即可正常使用并持久化设置**（令牌见 `docker logs`，首次访问经 `?token=...` 登录），**无需** `DSH_TRUSTED_HOSTS`。若 `DSH_CADDY=false` 走直连模式，仍建议配合 SSH 隧道 `ssh -L 3080:localhost:3080 <host>` 访问。
 
 ---
 
@@ -204,6 +204,7 @@ docker run --rm \
   - 内置 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）**，可通过 `DSH_VERSION` 构建参数调整版本（当前默认 `0.1.5-rc.1`，开发者预览版请务必固定版本）；
   - 默认命令 `dsh web` 启动 Web UI（`http://<host>:3080`），也支持 `dsh --profile headless "任务"` 一次性执行；
   - **内嵌 Caddy 反向代理**（默认开启，`DSH_CADDY=true`）：dsh 内部仅绑定 `127.0.0.1:DSH_UPSTREAM_PORT`，Caddy 对外监听 `DSH_PORT` 并把 Host/Origin 改写为 `localhost`。这样既规避了 dsh CLI 对 `--host 0.0.0.0` 的拒绝（无需 0.0.0.0 patch），又绕开了 `settings.describe` / `credentials.*` / `llm.discoverModels` 等特权 RPC 的 loopback 钉死，远程浏览器经启动令牌认证后即可正常使用设置/模型页并持久化（令牌见 `docker logs`）。设 `DSH_CADDY=false` 可回退为直连模式（`cordis.patch.yml` 绑定 `0.0.0.0` + `DSH_TRUSTED_HOSTS`）；
+  - **远程设置/模型页**：dsh ≥0.1.5 把 `settings.describe` 等配置类 RPC 改为仅对浏览器自身地址为 loopback 时可用（客户端判定），镜像构建期打补丁（`patch-settings-loopback.mjs`）强制 `isLoopback=true`，远程浏览器经令牌认证后即可正常使用设置/模型页并持久化（令牌见 `docker logs`）；
   - **LLM 配置注入**：`DEEPSEEK_API_KEY` 原生接入，或通过 `DSH_*` 系列变量注入任意 OpenAI 兼容 provider（写入 `$DSH_HOME/settings.yaml`，凭证以 `apiKeyEnv` 引用环境变量、不进文件）；
   - 容器内默认 `DSH_TOOLS_MODE=ptc`（JS run_code 沙箱，dsh ≥0.1.5 已将旧值 `code` 更名为 `ptc`），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
   - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化；
@@ -244,6 +245,8 @@ htcontainer/
 │   ├── agent_dsh/                # DeepSeek Harness Agent 镜像
 │   │   ├── Dockerfile
 │   │   ├── entrypoint.sh
+│   │   ├── patch-frontend.mjs          # crypto.randomUUID polyfill（构建期注入）
+│   │   ├── patch-settings-loopback.mjs # 修复远程设置/模型页不可用（构建期注入）
 │   │   ├── docker-compose.yml
 │   │   └── .env.example
 │   └── debian-slim-test/         # 开发测试镜像
