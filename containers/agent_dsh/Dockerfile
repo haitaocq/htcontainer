@@ -9,7 +9,7 @@
 FROM node:24-bookworm AS builder
 
 # dsh 版本（当前为 developer preview，必须 pin 固定版本）
-ARG DSH_VERSION=0.1.0-rc.6
+ARG DSH_VERSION=0.1.5-rc.1
 
 # 全局安装 @deepseek-ai/dsh
 # 安装完成后清理 node-pty 自带的其他平台预编译包（darwin/win32），缩减镜像体积。
@@ -71,8 +71,9 @@ ENV DSH_CADDY=true
 ENV DSH_PORT=3080
 # dsh 内部监听端口（仅 127.0.0.1，由 Caddy 反代）
 ENV DSH_UPSTREAM_PORT=3081
-# 容器内默认使用 code 模式沙箱（纯 JS worker-thread，规避 Landlock 在 seccomp 下的限制）
-ENV DSH_TOOLS_MODE=code
+# 容器内默认使用 ptc 模式沙箱（JS run_code 运行时，规避 Landlock 在 seccomp 下的限制）
+# 注意：dsh ≥0.1.5 已将旧值 code 更名为 ptc，mode 可选值 native | ptc | both
+ENV DSH_TOOLS_MODE=ptc
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["web"]

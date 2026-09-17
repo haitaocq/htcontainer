@@ -105,7 +105,7 @@ docker run -d --name agent_dsh \
   ghcr.io/<owner>/agent_dsh:latest
 ```
 
-访问 `http://<host>:3080` 使用 Web UI；`dsh --profile headless "任务"` 一次性执行：
+访问 `http://<host>:3080` 使用 Web UI。**注意**：dsh ≥0.1.5 起 Web UI 增加了启动令牌认证，首次访问需先取令牌：执行 `docker logs agent_dsh` 找到 `?token=<令牌>`，打开 `http://<host>:3080/?token=<令牌>` 完成登录（浏览器会持久化会话 Cookie，后续直接访问即可）。`dsh --profile headless "任务"` 一次性执行：
 
 ```bash
 docker run --rm \
@@ -151,7 +151,7 @@ docker run --rm \
 | `DSH_UPSTREAM_PORT` | 否 | dsh 内部监听端口（仅 `127.0.0.1`，默认 `3081`，不要对外映射） |
 | `DSH_BIND_HOST` | 否 | 仅 `DSH_CADDY=false` 直连模式生效：Web 绑定地址（默认 `0.0.0.0`，通过 patch 覆盖 `webserver` 行实现，无需 CLI 支持） |
 | `DSH_TRUSTED_HOSTS` | 否 | 仅 `DSH_CADDY=false` 直连模式生效：浏览器访问 Web UI 所用的地址（IP/域名，逗号或空格分隔），否则 `/api` 信任栅栏返回 403 |
-| `DSH_TOOLS_MODE` | 否 | 工具沙箱模式：`native` \| `code` \| `both`（容器内默认 `code`，规避 Landlock 限制） |
+| `DSH_TOOLS_MODE` | 否 | 工具沙箱模式：`native` \| `ptc` \| `both`（容器内默认 `ptc`，规避 Landlock 限制；dsh ≥0.1.5 已将旧值 `code` 更名为 `ptc`） |
 | `DSH_WORKSPACE` | 否 | 工作目录（默认 `~/workspace`，不存在会自动创建） |
 | `DEEPSEEK_API_KEY` | 是* | DeepSeek 原生 API Key（环境变量直接生效，无需配置文件） |
 | `DSH_PROVIDER_ID` | 否 | 自定义 Provider ID（默认 `custom-provider`） |
@@ -162,7 +162,7 @@ docker run --rm \
 
 > `*`：`DEEPSEEK_API_KEY` 与 `DSH_BASE_URL`+`DSH_API_TOKEN`+`DSH_MODEL` 两种 LLM 接入方式任选其一。
 
-> **设置/模型页说明**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*）。默认 `DSH_CADDY=true` 时，容器内置的 Caddy 通过改写 Host/Origin 为 `localhost` 解决该限制，远程浏览器即可正常使用并持久化设置，**无需** `DSH_TRUSTED_HOSTS`；若设置 `DSH_CADDY=false` 走直连模式，这类页面仍只能通过 `http://localhost:3080`（或 SSH 隧道 `ssh -L 3080:localhost:3080 <host>`）访问。
+> **设置/模型页说明**：`settings.describe`、`llm.discoverModels`、`credentials.*` 等**配置类 RPC 被 dsh 刻意钉死在 loopback**（官方：*stay loopback-local until a real authentication layer exists*）。默认 `DSH_CADDY=true` 时，容器内置的 Caddy 通过改写 Host/Origin 为 `localhost` 解决该限制，远程浏览器即可正常使用并持久化设置，**无需** `DSH_TRUSTED_HOSTS`；dsh ≥0.1.5 起 Web UI 还要求**启动令牌认证**（令牌随机生成、见 `docker logs`），首次访问经 `?token=...` 登录后，Caddy 会把后续请求的 Host/Origin 改写为 `localhost` 自动放行。若设置 `DSH_CADDY=false` 走直连模式，这类页面仍只能通过 `http://localhost:3080`（或 SSH 隧道 `ssh -L 3080:localhost:3080 <host>`）访问。
 
 ---
 
@@ -201,11 +201,11 @@ docker run --rm \
 
 - **基础镜像**：`node:24-bookworm-slim`（构建阶段使用 `node:24-bookworm` 编译原生依赖）
 - **特性**：
-  - 内置 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）**，可通过 `DSH_VERSION` 构建参数调整版本（当前默认 `0.1.0-rc.6`，开发者预览版请务必固定版本）；
+  - 内置 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）**，可通过 `DSH_VERSION` 构建参数调整版本（当前默认 `0.1.5-rc.1`，开发者预览版请务必固定版本）；
   - 默认命令 `dsh web` 启动 Web UI（`http://<host>:3080`），也支持 `dsh --profile headless "任务"` 一次性执行；
-  - **内嵌 Caddy 反向代理**（默认开启，`DSH_CADDY=true`）：dsh 内部仅绑定 `127.0.0.1:DSH_UPSTREAM_PORT`，Caddy 对外监听 `DSH_PORT` 并把 Host/Origin 改写为 `localhost`。这样既规避了 dsh CLI 对 `--host 0.0.0.0` 的拒绝（无需 0.0.0.0 patch），又绕开了 `settings.describe` / `credentials.*` / `llm.discoverModels` 等特权 RPC 的 loopback 钉死，远程浏览器即可正常使用设置/模型页并持久化。设 `DSH_CADDY=false` 可回退为直连模式（`cordis.patch.yml` 绑定 `0.0.0.0` + `DSH_TRUSTED_HOSTS`）；
+  - **内嵌 Caddy 反向代理**（默认开启，`DSH_CADDY=true`）：dsh 内部仅绑定 `127.0.0.1:DSH_UPSTREAM_PORT`，Caddy 对外监听 `DSH_PORT` 并把 Host/Origin 改写为 `localhost`。这样既规避了 dsh CLI 对 `--host 0.0.0.0` 的拒绝（无需 0.0.0.0 patch），又绕开了 `settings.describe` / `credentials.*` / `llm.discoverModels` 等特权 RPC 的 loopback 钉死，远程浏览器经启动令牌认证后即可正常使用设置/模型页并持久化（令牌见 `docker logs`）。设 `DSH_CADDY=false` 可回退为直连模式（`cordis.patch.yml` 绑定 `0.0.0.0` + `DSH_TRUSTED_HOSTS`）；
   - **LLM 配置注入**：`DEEPSEEK_API_KEY` 原生接入，或通过 `DSH_*` 系列变量注入任意 OpenAI 兼容 provider（写入 `$DSH_HOME/settings.yaml`，凭证以 `apiKeyEnv` 引用环境变量、不进文件）；
-  - 容器内默认 `DSH_TOOLS_MODE=code`（纯 JS worker-thread 沙箱），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
+  - 容器内默认 `DSH_TOOLS_MODE=ptc`（JS run_code 沙箱，dsh ≥0.1.5 已将旧值 `code` 更名为 `ptc`），规避 Landlock 原生沙箱在 Docker seccomp 下的限制；
   - 数据目录 `$DSH_HOME`（默认 `~/.dsh`）建议挂载卷持久化；
   - 容器以非 root 用户 `agents` 运行（**固定 uid/gid 10001**），镜像已预建数据/工作目录并设置属主。使用具名卷可直接挂载；若 bind 挂载宿主机目录，请先 `chown -R 10001:10001 <host-dir>`。
 
@@ -310,7 +310,7 @@ docker build --build-arg CC_VERSION=1.4.1 \
   --tag local/agent_cc-connect:test ./containers/agent_cc-connect
 
 # DeepSeek Harness 镜像（指定 dsh 版本）
-docker build --build-arg DSH_VERSION=0.1.0-rc.6 \
+docker build --build-arg DSH_VERSION=0.1.5-rc.1 \
   --tag local/agent_dsh:test ./containers/agent_dsh
 ```
 

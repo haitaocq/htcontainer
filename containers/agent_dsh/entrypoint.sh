@@ -158,13 +158,17 @@ EOF
 
     # 等待 dsh 就绪后再启动 Caddy，避免首个请求命中 502；
     # 若 dsh 提前退出（如配置错误），立即进入 wait 流程传播其退出码
+    # 注意：dsh ≥0.1.5 的 Web UI 引入启动令牌认证，未认证的 GET / 返回 401、
+    # 带 token 返回 303、认证后才返回 200。curl -f 只认 2xx，会把 401/303
+    # 误判为不可用导致轮询超时（Caddy 晚 60s 才启动），故这里改为只要拿到
+    # 任意 HTTP 状态码（端口已开始服务）即视为就绪。
     local dsh_alive=1
     for _ in $(seq 1 60); do
         if ! kill -0 "$dsh_pid" 2>/dev/null; then
             dsh_alive=0
             break
         fi
-        if curl -fsS -o /dev/null "http://127.0.0.1:${upstream_port}/" 2>/dev/null; then
+        if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${upstream_port}/")" != "000" ]; then
             break
         fi
         sleep 1
