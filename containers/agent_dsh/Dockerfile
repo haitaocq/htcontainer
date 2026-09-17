@@ -12,9 +12,14 @@ FROM node:24-bookworm AS builder
 ARG DSH_VERSION=0.1.0-rc.6
 
 # 全局安装 @deepseek-ai/dsh
-# 安装完成后清理 node-pty 自带的其他平台预编译包（darwin/win32），缩减镜像体积
+# 安装完成后清理 node-pty 自带的其他平台预编译包（darwin/win32），缩减镜像体积。
+# 注意：只能删除 darwin/win32 等非 Linux 预编译包，绝不能删除整个 prebuilds 目录，
+# 否则 node-pty 缺少 prebuilds/linux-*/pty.node 原生模块，dsh 启动会直接报错
+# （node-pty 的 install 脚本只检查 shipped prebuild，存在则不会重新编译）。
+# 保留全部 linux-* 预编译包，兼顾 amd64 / arm64 多平台构建。
 RUN npm install -g --no-audit --no-fund @deepseek-ai/dsh@${DSH_VERSION} && \
-    rm -rf /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds
+    find /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds \
+        -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} +
 
 # ==========================================
 # 阶段 2: 最终生产运行镜像
